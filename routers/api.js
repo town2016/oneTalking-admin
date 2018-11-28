@@ -131,11 +131,6 @@ router.post('/createDynamic', function (req, res, next) {
           })
         }
       })
-      
-      doc.update({comments: doc._id}).then(result => {
-        console.log(result)
-      })
-      
     } else {
       response.message = '操作失败'
       response.code = 500
@@ -144,22 +139,25 @@ router.post('/createDynamic', function (req, res, next) {
   })
 })
 
+
 // l拉取动态列表
-router.get('/dynamicList', function (req, res) {
-  var skip = req.query.pageNumber ? (req.query.pageNumber - 1) * 15 : 0
+router.get('/dynamicList', function (req, res, next) {
+  var skip = req.query.pageNumber ? (req.query.pageNumber - 1) * 20 : 0
   var query = req.query
   var pageNumber = query.pageNumber
   var userInfo = req.session.user
   if (query.pageNumber) {
     delete query.pageNumber
   }
-  Dynamic.find({...query}, {__v: 0}).sort({'createTime': -1}).limit(15).skip(skip).then((docs) => {
+  Dynamic.find({...query}, {__v: 0}).sort({'createTime': -1}).limit(20).skip(skip).then((docs) => {
     response.data = {}
     var match = {}
-    match = userInfo ? {user: userInfo._id} : match
+    match = userInfo ? {_id: userInfo._id} : match
     var opts = [
       { path: 'user', select: {__v: 0, pwd: 0}},
-      { path: 'parises'}
+      { path: 'praised', match: match},
+      { path: 'praises'},
+      { path: 'comments'}
      ]
     
     var promise = Dynamic.populate(docs, opts);
@@ -169,7 +167,7 @@ router.get('/dynamicList', function (req, res) {
             total: len,
             list: docs,
             curNum: Number(pageNumber),
-            totalNum: Math.ceil(len/5)
+            totalNum: Math.ceil(len/20)
           }
           res.json(response)
         })
@@ -187,31 +185,66 @@ router.get('/dynamicForUser', function (req, res, next) {
     res.json(response)
     return
   }
-  var skip = req.query.pageNumber ? (req.query.pageNumber - 1) * 15 : 0
+  var skip = req.query.pageNumber ? (req.query.pageNumber - 1) * 20 : 0
   var query = req.query
   var pageNumber = query.pageNumber
   if (query.pageNumber) {
     delete query.pageNumber
   }
   query.user = userInfo._id
-  Dynamic.find({...query}, {__v: 0}).sort({'createTime': -1}).limit(15).skip(skip).populate('user', {__v: 0, pwd: 0}).then((docs) => {
+  Dynamic.find({...query}, {__v: 0}).sort({'createTime': -1}).limit(20).skip(skip).populate('user', {__v: 0, pwd: 0}).then((docs) => {
     response.data = {}
     Dynamic.countDocuments().then(len => {
       response.data = {
         total: len,
         list: docs,
         curNum: Number(pageNumber),
-        totalNum: Math.ceil(len/5)
+        totalNum: Math.ceil(len/20)
       }
       res.json(response)
     })
   })
 })
 
+// 用户删除动态
+router.get('/dynamicDelete', function (req, res, next) {
+  var userInfo = req.session.user
+  if (!userInfo) {
+    response.code = 401
+    response.message = '未登录状态'
+    res.json(response)
+    return
+  }
+  var did = req.query.id
+  Dynamic.findOne({_id: did, user: userInfo._id}, function (error, doc) {
+    if (error) {
+      response.data = '500'
+      response.message = '删除对象不存在'
+      res.json(response)
+    } else {
+      doc.remove(function (er) {
+        if (er) {
+          console.log(er)
+        } else {
+          response.message = '删除成功'
+        }
+        res.json(response)
+      })
+    }
+  })
+  
+})
+
 // 点赞
 router.get('/parise', function (req, res, next) {
   var userInfo = req.session.user
   var query = req.query
+  if (!userInfo) {
+    response.code = 401
+    response.message = '未登录状态'
+    res.json(response)
+    return
+  }
   if (!query.id) {
     response.code = 500
     response.message = '点赞对象不存在'
@@ -219,21 +252,27 @@ router.get('/parise', function (req, res, next) {
     return
   }
   Parise.findOne({user: userInfo._id, dynamic: query.id}).then(doc => {
-    console.log(doc)
     if (doc) {
       Parise.remove(doc).then(result => {
         if (!result) {
-          console.log(result)
           response.message = '取消点赞失败'
           response.code = 500
           res.json(response)
         } else {
           Dynamic.findById(query.id).then(dynamic => {
             if (dynamic) {
-              dynamic.update({pariseCount: --dynamic.pariseCount}).then(d_res => {
+              var praiseList = dynamic.praises
+              var praisedList = dynamic.praised
+              dynamic.praises.map((item, index) => {
+                if (item.toString() === userInfo._id.toString()) {
+                  praiseList.splice(index, 1)
+                  praisedList.splice(index, 1)
+                }
+              })
+              dynamic.update({praises: praiseList, praised: praisedList}).then(d_res => {
                 if (d_res) {
                   response.message = '取消点赞成功'
-                  response.data = 'cancel'
+                  response.data = {...userInfo,opt: 'cancel'}
                   res.json(response)
                 }
               })
@@ -244,17 +283,17 @@ router.get('/parise', function (req, res, next) {
     } else {
       Parise.create({user: userInfo._id, dynamic: query.id, createTime: new Date()}).then(parise => {
         if (!parise) {
-          console.log(parise)
           response.message = '点赞失败'
           response.code = 500
           res.json(response)
         } else {
           Dynamic.findById(query.id).then(dynamic => {
             if (dynamic) {
-              dynamic.update({$addToSet: {parises: mongoose.Types.ObjectId(userInfo._id)}}).then(d_res => {
+              dynamic.update({$addToSet: {praises: mongoose.Types.ObjectId(userInfo._id), praised: mongoose.Types.ObjectId(userInfo._id)}})
+              .then(d_res => {
                 if (d_res) {
                   response.message = '点赞成功'
-                  response.data = parise
+                  response.data = {...userInfo, opt: 'praise'}
                   res.json(response)
                 }
               })
@@ -264,8 +303,45 @@ router.get('/parise', function (req, res, next) {
       })
     }
   })
-  
-  
 })
+
+// 评论
+router.post('/commentSave', function (req, res, next) {
+  var userInfo = req.session.user
+  var query = req.query
+  if (!userInfo) {
+    response.code = 401
+    response.message = '未登录状态'
+    res.json(response)
+    return
+  }
+  var params = req.body
+  params.user = userInfo._id
+  params.userName = userInfo.account
+  Comment.create(params, function (err, doc) {
+    if (err) {
+      console.log(err)
+    } else {
+      Dynamic.findById(params.dynamic, function (derr, dynamic) {
+        if (derr) {
+          console.log(derr)
+        } else {
+          dynamic.update({$addToSet: {comments: doc._id}}, function (uerr, result) {
+            if (err){
+               console.log(err)
+               response.message = '评论失败'
+               response.code = 500
+            } else {
+              response.message = '评论成功'
+              response.data = doc
+            }
+            res.json(response)
+          })
+        }
+      })
+    }
+  })
+})
+
 
 module.exports = router

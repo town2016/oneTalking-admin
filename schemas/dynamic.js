@@ -7,8 +7,21 @@ var dynamicSchema = new Schema({
   dynamic: {type: String},
   imgList: {type: Array, default () {return []}},
   locations: {type: String},
-  parises: {type: Array},
-  comments: {type: mongoose.Schema.Types.ObjectId, ref: 'Comment'}
+  praised: [
+    {
+      type: mongoose.Schema.Types.ObjectId,ref: 'User'
+    }
+  ],
+  praises: [
+    {
+      type: mongoose.Schema.Types.ObjectId,ref: 'User'
+    }
+  ],
+  comments: [
+    {
+      type: mongoose.Schema.Types.ObjectId, ref: 'Comment'
+    }
+  ]
 })
 
 module.exports = dynamicSchema

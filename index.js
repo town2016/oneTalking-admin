@@ -8,28 +8,30 @@ const app = express()
 app.use(bodyParser.urlencoded({ extended: true }))
 app.use(bodyParser.json());
 
-// 设置cookie中间件
-app.use(function (req, res, next) {
-  req.cookies = new Cookies(req, res)
-  var noAuth = ['/user/register', '/api/dynamicList', '/user/login', '/api/fileUpload']
-  if (noAuth.indexOf(req._parsedUrl.pathname) < 0) {
-    if (!req.cookies.get('session-id')) {
-      res.json({code: 401, message: '用户未登录'})
-    }
-  }
-  next()
-})
+
 // 创建 session 中间件
 app.use(
   session({
     secret: 'inneractive',
     name: 'session-id',
-    cookie: {maxAge: 1000*60*60*24, httpOnly: false},
+    cookie: {maxAge: 1000 * 60 * 60 * 24, httpOnly: false},
     resave: true,
     rolling: true,
     saveUninitialized: true
   })
 )
+
+// 设置cookie中间件
+app.use(function (req, res, next) {
+  req.cookies = new Cookies(req, res)
+  var noAuth = ['/user/register', '/api/dynamicList', '/user/login', '/api/fileUpload']
+  if (noAuth.indexOf(req._parsedUrl.pathname) < 0 && !req._parsedUrl.pathname.includes('/uploads/')) {
+    if (!req.cookies.get('session-id') || !req.session.user) {
+      console.log('用户未登录')
+    }
+  }
+  next()
+})
 
 // 捕获异常信息
 app.use(function (err, req, res, next) {
